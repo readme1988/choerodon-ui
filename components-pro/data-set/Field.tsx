@@ -1,16 +1,26 @@
 import { action, computed, get, observable, ObservableMap, runInAction, set, toJS } from 'mobx';
 import { MomentInput } from 'moment';
+import isFunction from 'lodash/isFunction';
 import isEqual from 'lodash/isEqual';
 import isObject from 'lodash/isObject';
 import merge from 'lodash/merge';
 import defer from 'lodash/defer';
+import unionBy from 'lodash/unionBy';
 import { AxiosRequestConfig } from 'axios';
 import { getConfig } from 'choerodon-ui/lib/configure';
 import warning from 'choerodon-ui/lib/_util/warning';
 import DataSet from './DataSet';
 import Record from './Record';
 import Validator, { CustomValidator, ValidationMessages } from '../validator/Validator';
-import { DataSetEvents, FieldFormat, FieldIgnore, FieldTrim, FieldType, SortOrder } from './enum';
+import {
+  DataSetEvents,
+  DataSetSelection,
+  FieldFormat,
+  FieldIgnore,
+  FieldTrim,
+  FieldType,
+  SortOrder,
+} from './enum';
 import lookupStore from '../stores/LookupCodeStore';
 import lovCodeStore from '../stores/LovCodeStore';
 import localeContext from '../locale-context';
@@ -26,6 +36,27 @@ import isSameLike from '../_util/isSameLike';
 import * as ObjectChainValue from '../_util/ObjectChainValue';
 import { buildURLWithAxiosConfig } from '../axios/utils';
 import { getDateFormatByField } from '../field/utils';
+import { getLovPara } from '../stores/utils';
+
+function isEqualDynamicProps(oldProps, newProps) {
+  if (newProps === oldProps) {
+    return true;
+  }
+  if (isObject(newProps) && isObject(oldProps)) {
+    return Object.keys(newProps).every(key => {
+      const value = newProps[key];
+      const oldValue = oldProps[key];
+      if (oldValue === value) {
+        return true;
+      }
+      if (isFunction(value) && isFunction(oldValue)) {
+        return value.toString() === oldValue.toString();
+      }
+      return isEqual(oldValue, value);
+    });
+  }
+  return isEqual(newProps, oldProps);
+}
 
 function getPropsFromLovConfig(lovCode, propsName) {
   if (lovCode) {
@@ -278,9 +309,30 @@ export default class Field {
   @computed
   get lookup(): object[] | undefined {
     const lookup = this.get('lookup');
+    const valueField = this.get('valueField');
     if (lookup) {
       const lookupData = this.get('lookupData') || [];
-      return lookup.concat(lookupData);
+      return unionBy(lookup.concat(lookupData), valueField);
+    }
+    return undefined;
+  }
+
+  @computed
+  get options(): DataSet | undefined {
+    const options = this.get('options');
+    if (options) {
+      return options;
+    }
+    // 确保 lookup 相关配置介入观察
+    lookupStore.getAxiosConfig(this);
+    const { lookup } = this;
+    if (lookup) {
+      const selection = this.get('multiple') ? DataSetSelection.multiple : DataSetSelection.single;
+      return new DataSet({
+        data: lookup,
+        paging: false,
+        selection,
+      });
     }
     return undefined;
   }
@@ -472,7 +524,7 @@ dynamicProps = {
   @action
   set(propsName: string, value: any): void {
     const oldValue = this.get(propsName);
-    if (oldValue !== value) {
+    if (!isEqualDynamicProps(oldValue, value)) {
       set(this.props, propsName, value);
       const { record, dataSet, name } = this;
       if (record) {
@@ -526,7 +578,7 @@ dynamicProps = {
   getText(value: any = this.getValue(), showValueIfNotFound?: boolean): string | undefined {
     const textField = this.get('textField');
     const valueField = this.get('valueField');
-    const { lookup } = this;
+    const { lookup, options } = this;
     if (lookup) {
       const found = lookup.find(obj => isSameLike(get(obj, valueField), value));
       if (found) {
@@ -537,9 +589,8 @@ dynamicProps = {
       }
       return undefined;
     }
-    const options = this.getOptions();
     if (options) {
-      const found = options.find(record => record.get(valueField) === value);
+      const found = options.find(record => isSameLike(record.get(valueField), value));
       if (found) {
         return found.get(textField);
       }
@@ -555,7 +606,7 @@ dynamicProps = {
   }
 
   getOptions(): DataSet | undefined {
-    return this.get('options');
+    return this.options;
   }
 
   /**
@@ -696,44 +747,59 @@ dynamicProps = {
    * @return Promise<object[]>
    */
   async fetchLookup(): Promise<object[] | undefined> {
-    const axiosConfig = lookupStore.getAxiosConfig(this);
+    const batch = getConfig('lookupBatchAxiosConfig');
+    const lookupCode = this.get('lookupCode');
+    const lovPara = getLovPara(this, this.record);
     const dsField = this.findDataSetField();
-    if (dsField) {
-      const dsConfig = lookupStore.getAxiosConfig(dsField);
-      if (
-        dsConfig.url &&
-        buildURLWithAxiosConfig(dsConfig) === buildURLWithAxiosConfig(axiosConfig)
-      ) {
+    let result;
+    if (batch && lookupCode && Object.keys(lovPara).length === 0) {
+      if (dsField && dsField.get('lookupCode') === lookupCode) {
         this.set('lookup', undefined);
         return dsField.get('lookup');
       }
-    }
-    if (axiosConfig.url) {
-      const result = await this.pending.add<object[] | undefined>(
-        lookupStore.fetchLookupData(axiosConfig),
+
+      result = await this.pending.add<object[] | undefined>(
+        lookupStore.fetchLookupDataInBatch(lookupCode),
       );
-      if (result) {
-        runInAction(() => {
-          const { lookup } = this;
-          this.set('lookup', result);
-          const value = this.getValue();
-          const valueField = this.get('valueField');
-          if (value && valueField && lookup) {
-            this.set(
-              'lookupData',
-              [].concat(value).reduce<object[]>((lookupData, v) => {
-                const found = lookup.find(item => isSameLike(item[valueField], v));
-                if (found) {
-                  lookupData.push(found);
-                }
-                return lookupData;
-              }, []),
-            );
-          }
-        });
+    } else {
+      const axiosConfig = lookupStore.getAxiosConfig(this);
+      if (dsField) {
+        const dsConfig = lookupStore.getAxiosConfig(dsField);
+        if (
+          dsConfig.url &&
+          buildURLWithAxiosConfig(dsConfig) === buildURLWithAxiosConfig(axiosConfig)
+        ) {
+          this.set('lookup', undefined);
+          return dsField.get('lookup');
+        }
       }
-      return result;
+      if (axiosConfig.url) {
+        result = await this.pending.add<object[] | undefined>(
+          lookupStore.fetchLookupData(axiosConfig),
+        );
+      }
     }
+    if (result) {
+      runInAction(() => {
+        const { lookup } = this;
+        this.set('lookup', result);
+        const value = this.getValue();
+        const valueField = this.get('valueField');
+        if (value && valueField && lookup) {
+          this.set(
+            'lookupData',
+            [].concat(value).reduce<object[]>((lookupData, v) => {
+              const found = lookup.find(item => isSameLike(item[valueField], v));
+              if (found) {
+                lookupData.push(found);
+              }
+              return lookupData;
+            }, []),
+          );
+        }
+      });
+    }
+    return result;
   }
 
   fetchLovConfig() {
@@ -760,7 +826,7 @@ dynamicProps = {
   }
 
   ready(): Promise<any> {
-    const options = this.getOptions();
+    const { options } = this;
     return Promise.all([this.pending.ready(), options && options.ready()]);
   }
 
@@ -774,7 +840,7 @@ dynamicProps = {
   private checkDynamicProp(propsName, newProp) {
     // if (propsName in this.lastDynamicProps) {
     const oldProp = this.lastDynamicProps[propsName];
-    if (oldProp !== newProp) {
+    if (!isEqualDynamicProps(oldProp, newProp)) {
       defer(
         action(() => {
           if (propsName in this.validator.props || propsName === 'validator') {
@@ -815,6 +881,7 @@ dynamicProps = {
         'lovQueryUrl',
       ].includes(propsName)
     ) {
+      this.set('lookupData', undefined);
       this.fetchLookup();
     }
     if (['lovCode', 'lovDefineAxiosConfig', 'lovDefineUrl'].includes(propsName)) {

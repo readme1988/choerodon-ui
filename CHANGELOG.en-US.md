@@ -15,20 +15,92 @@ timeline: true
 
 ---
 
+- 💄 Optimized the `jest` configuration to update the snapshot.
+- 🌟 `<pro>Upload`: Added `showUploadList` property.
+- 🐞 `<pro>Select`: Fixed the dynamic query lookup option repeat problem.
+
+## 0.8.50
+
+`2020-01-07`
+
+- 🐞 Fixed the online code editor.
+- 🐞 `Tree`: Fixed the failure of defaultCheckedKeys in disable state.
+- 🐞 `<pro>Lov`: Fixed the problem that the unique check does not display an error.
+
+## 0.8.49
+
+`2019-12-30`
+
+- 🌟 `<pro>DataSet.Record`: Added `setState` and `getState` methods.
+- 💄 `<pro>DataSet.Field`: Optimize the `options` property.
+- 💄 `<pro>ViewComponent`: Optimized `onBlur` hook to prevent blur based on `preventDefault` called by blur event.
+- 🐞 `Transfer`: Fixed icon.
+- 🐞 `<pro>DataSet`: Fixed the problem that the dirty is false when only the records are deleted in the case that `dataToJson` is normal.
+- 🐞 `<pro>DataSet`: Fixed cascading problem.
+
+## 0.8.48
+
+`2019-12-23`
+
+- 🌟 `<pro>Table`: Open `Table` `queryBar` Component.
+- 🌟 `<pro>Pagination`: Added `showQuickJumper` property.
+- 🐞 `<pro>DataSet.Record`: Fixed status error caused dirty error problem.
+- 🐞 `<pro>Select`: Fixed the issue where multiple Select buttons would select filtered records.
+
+## 0.8.47
+
+`2019-12-15`
+
+- 🐞 `<pro>DataSet.Field`: Fixed the dead cycle of an incoming object parameter with function value in `dynamicProps`.
+- 🐞 `<pro>DataSet.Record`: Fixed parent and children of tree nodes being incorrectly in cascaded.
+- 🐞 `<pro>DataSet`: Fix the problem that the data write-back fails when `dataToJSON` is `normal`.
+
+## 0.8.46
+
+`2019-12-09`
+
+- 🌟 `configure`: Added `lookupBatchAxiosConfig` property.
+- 🌟 `<pro>DataSet`: Added `dirty` property, deprecated `isModified` method.
+- 💄 `<pro>DataSet.Record`: Optimize the `dirty` property, which contains whether the cascaded data has changed.
+- 🐞 `<pro>Table`: Fixed the Table tree structure right fixed column expansion icon problem.
+
+## 0.8.45
+
+`2019-12-07`
+
+- 🐞 `Progress`: Fixed the animation style of Progress in IE.
+- 🐞 `<pro>DataSet.Field`: Fixed the dead cycle of an incoming object parameter in `dynamicProps`.
+
+## 0.8.44
+
+`2019-12-05`
+
+- 🌟 `<pro>DataSet`: Added `dataToJSON` property, deprecated parameters of method such as `toJSONData`.
+- 🐞 `<pro>FormField`: Fixed the problem with the cascadeMap parameter value of 0/ false to disable the child.
+- 🐞 `<pro>Select`: Fixed the problem that the unchecked option disappears in multi-selection mode.
+- 🐞 `<pro>DatePicker`: Fixed the problem of updating the value in dateTime mode.
+- 🐞 `<pro>DatePicker`: Fixed the week-selection display problem and disable input in week mode.
+
+## 0.8.43
+
+`2019-12-02`
+
+- 🐞 `<pro>DataSet`: Fixed the problem with `splice` method.
+
 ## 0.8.42
 
 `2019-12-01`
 
-- 🌟 `<pro> DataSet`: Added `autoLocateAfterCreate` property.
+- 🌟 `<pro>DataSet`: Added `autoLocateAfterCreate` property.
 - 🐞 `<pro>DataSet.Field`: Fixed min / max verification type judgment.
 
 ## 0.8.41
 
 `2019-11-27`
 
-- 🌟 `<pro> DataSet`: Added `remove` event.
-- 🌟 `<pro> DataSet`: Added `autoLocateAfterRemove` property.
-- 💄 `<pro> DataSet`: Optimize the performance of `remove` method.
+- 🌟 `<pro>DataSet`: Added `remove` event.
+- 🌟 `<pro>DataSet`: Added `autoLocateAfterRemove` property.
+- 💄 `<pro>DataSet`: Optimize the performance of `remove` method.
 
 ## 0.8.40
 

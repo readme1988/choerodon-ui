@@ -15,6 +15,78 @@ timeline: true
 
 ---
 
+- 💄 修改 jest 配置，更新快照。
+- 🌟 `<pro>Upload`: 新增 showUploadList 属性。
+- 🐞 `<pro>Select`: 修复动态查询 lookup 选项重复问题。
+
+## 0.8.50
+
+`2020-01-07`
+
+- 🐞 修复在线代码编辑器。
+- 🐞 `Tree`: 修复 disabled 状态下 defaultCheckedKeys 失效的问题。
+- 🐞 `<pro>Lov`: 修复唯一校验不显示错误的问题。
+
+## 0.8.49
+
+`2019-12-30`
+
+- 🌟 `<pro>DataSet.Record`: 新增 setState、getState 方法。
+- 💄 `<pro>DataSet.Field`: 优化 options 属性。
+- 💄 `<pro>ViewComponent`: 优化 onBlur 钩子可根据 preventDefault 阻止失焦。
+- 🐞 `Transfer`: 修复 icon。
+- 🐞 `<pro>DataSet`: 修复 dataToJson 为 normal 时, 仅删除记录的情况下状态不为 dirty 的问题。
+- 🐞 `<pro>DataSet`: 修复级联的问题。
+
+## 0.8.48
+
+`2019-12-23`
+
+- 🌟 `<pro>Table`: 开放 Table queryBar 组件。
+- 🌟 `<pro>Pagination`: 新增 showQuickJumper 属性。
+- 🐞 `<pro>DataSet.Record`: 修复 status 错误导致 dirty 错误问题。
+- 🐞 `<pro>Select`: 修复 multiple 的 Select 全选按钮会将过滤掉的记录选中的问题。
+
+## 0.8.47
+
+`2019-12-15`
+
+- 🐞 `<pro>DataSet.Field`: 修复 dynamicProps 中对象参数含有函数时死循环的问题。
+- 🐞 `<pro>DataSet.Record`: 修复在级联情况下树形节点的 parent 和 children 不正确的问题。
+- 🐞 `<pro>DataSet`: 修复 dataToJSON 为 normal, 提交数据回写失败的问题。
+
+## 0.8.46
+
+`2019-12-09`
+
+- 🌟 `configure`: 新增 lookupBatchAxiosConfig 属性。
+- 🌟 `<pro>DataSet`: 新增 dirty 属性, 废弃 isModified 方法。
+- 💄 `<pro>DataSet.Record`: 优化 dirty 属性, 其包含级联数据是否变更。
+- 🐞 `<pro>Table`: 修复 Table 树形结构右固定列展开图标问题。
+
+## 0.8.45
+
+`2019-12-07`
+
+- 🐞 `Progress`: 修复 Progress IE 动画样式。
+- 🐞 `<pro>DataSet.Field`: 修复 dynamicProps 中对象参数死循环。
+
+## 0.8.44
+
+`2019-12-05`
+
+- 🌟 `<pro>DataSet`: 新增 dataToJSON 属性, 废弃 toJSONData 等方法的参数。
+- 🐞 `<pro>FormField`: 修复 cascadeMap 参数值为 0/false 禁用子级的问题。
+- 🐞 `<pro>Select`: 修复多选模式下取消勾选选项消失的问题。
+- 🐞 `<pro>DatePicker`: 修复 dateTime mode 下仅选择时间未更新值的问题。
+- 🐞 `<pro>DatePicker`: 修复 week mode 下跨年选周显示问题以及禁止输入。
+
+## 0.8.43
+
+`2019-12-02`
+
+- 🐞 `<pro>DataSet`: 修复 splice 方法的问题。
+
 ## 0.8.42
 
 `2019-12-01`

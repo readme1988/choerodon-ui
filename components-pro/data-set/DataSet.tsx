@@ -11,6 +11,8 @@ import {
   toJS,
 } from 'mobx';
 import axiosStatic, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import omit from 'lodash/omit';
+import flatMap from 'lodash/flatMap';
 import isNumber from 'lodash/isNumber';
 import isArray from 'lodash/isArray';
 import isObject from 'lodash/isObject';
@@ -24,18 +26,22 @@ import axios from '../axios';
 import Record from './Record';
 import Field, { FieldProps, Fields } from './Field';
 import {
+  adapterDataToJSON,
   axiosConfigAdapter,
   checkParentByInsert,
   doExport,
   findBindFieldBy,
+  generateData,
   generateJSONData,
   generateResponseData,
   getFieldSorter,
   getOrderFields,
+  isDirtyRecord,
   prepareForSubmit,
   prepareSubmitData,
   processIntlField,
   sortTree,
+  useSelected,
 } from './utils';
 import EventManager from '../_util/EventManager';
 import DataSetSnapshot from './DataSetSnapshot';
@@ -44,6 +50,7 @@ import {
   DataSetEvents,
   DataSetSelection,
   DataSetStatus,
+  DataToJSON,
   FieldType,
   RecordStatus,
   SortOrder,
@@ -226,6 +233,19 @@ export interface DataSetProps {
    * 覆盖默认axios
    */
   axios?: AxiosInstance;
+  /**
+   * 数据转为json的方式
+   * dirty - 只转换变更的数据，包括本身无变更但级联有变更的数据
+   * selected - 只转换选中的数据，无关数据的变更状态
+   * all - 转换所有数据
+   * normal - 转换所有数据，且不会带上__status, __id等附加字段
+   * dirty-self - 同dirty， 但不转换级联数据
+   * selected-self - 同selected， 但不转换级联数据
+   * all-self - 同all， 但不转换级联数据
+   * normal-self - 同normal， 但不转换级联数据
+   * @default dirty
+   */
+  dataToJSON?: DataToJSON;
 }
 
 export default class DataSet extends EventManager {
@@ -240,11 +260,10 @@ export default class DataSet extends EventManager {
     modifiedCheck: true,
     pageSize: 10,
     paging: true,
+    dataToJSON: DataToJSON.dirty,
   };
 
   id?: string;
-
-  parent?: DataSet;
 
   children: DataSetChildren = {};
 
@@ -258,7 +277,11 @@ export default class DataSet extends EventManager {
 
   resetInBatch: boolean = false;
 
+  @observable parent?: DataSet;
+
   @observable name?: string;
+
+  @observable parentName?: string;
 
   @observable records: Record[];
 
@@ -277,6 +300,8 @@ export default class DataSet extends EventManager {
   @observable selection: DataSetSelection | false;
 
   @observable cachedSelected: Record[];
+
+  @observable dataToJSON: DataToJSON;
 
   @computed
   get axios(): AxiosInstance {
@@ -453,7 +478,11 @@ export default class DataSet extends EventManager {
         case RecordStatus.delete:
           destroyed.push(record);
           break;
-        default:
+        default: {
+          if (record.dirty) {
+            updated.push(record);
+          }
+        }
       }
     });
     return [created, updated, destroyed];
@@ -627,6 +656,11 @@ export default class DataSet extends EventManager {
     return this.records.concat(this.cachedSelected.slice());
   }
 
+  @computed
+  get dirty(): boolean {
+    return this.records.some(isDirtyRecord);
+  }
+
   private inBatchSelection: boolean = false;
 
   private syncChildrenRemote = debounce((remoteKeys: string[], current: Record) => {
@@ -653,8 +687,10 @@ export default class DataSet extends EventManager {
         name,
         children,
         queryParameter = {},
+        dataToJSON,
       } = props;
       this.name = name;
+      this.dataToJSON = dataToJSON!;
       this.records = [];
       this.fields = observable.map<string, Field>();
       this.totalCount = 0;
@@ -717,26 +753,27 @@ export default class DataSet extends EventManager {
   }
 
   toData(): object[] {
-    return this.data.map(record => record.toData());
+    return generateData(this).data;
   }
 
   toJSONData(isSelected?: boolean, noCascade?: boolean): object[] {
-    const data: object[] = [];
-    (isSelected ? this.selected : this.records).forEach(record =>
-      generateJSONData(data, record, isSelected, noCascade),
-    );
-    return data;
+    const dataToJSON = adapterDataToJSON(isSelected, noCascade);
+    if (dataToJSON) {
+      this.dataToJSON = dataToJSON;
+    }
+    return generateJSONData(this).data;
   }
 
   /**
    * 等待选中或者所有记录准备就绪
-   * @param isSelect 如果为true，则只等待选中的记录
    * @returns Promise
    */
   ready(isSelect?: boolean): Promise<any> {
     return Promise.all([
       this.pending.ready(),
-      ...(isSelect ? this.selected : this.data).map(record => record.ready()),
+      ...(isSelect || useSelected(this.dataToJSON) ? this.selected : this.data).map(record =>
+        record.ready(),
+      ),
       ...[...this.fields.values()].map(field => field.ready()),
     ]);
   }
@@ -763,10 +800,14 @@ export default class DataSet extends EventManager {
    * @return Promise
    */
   async submit(isSelect?: boolean, noCascade?: boolean): Promise<any> {
-    await this.ready(isSelect);
-    if (await this.validate(isSelect, noCascade)) {
+    const dataToJSON = adapterDataToJSON(isSelect, noCascade);
+    if (dataToJSON) {
+      this.dataToJSON = dataToJSON;
+    }
+    await this.ready();
+    if (await this.validate()) {
       return this.pending.add(
-        this.write(isSelect ? this.selected : this.records, isSelect, noCascade),
+        this.write(useSelected(this.dataToJSON) ? this.selected : this.records),
       );
     }
     return false;
@@ -846,7 +887,7 @@ export default class DataSet extends EventManager {
       if (index >= 0 && index < totalCount + this.created.length - this.destroyed.length) {
         if (
           !modifiedCheck ||
-          !this.isModified() ||
+          !this.dirty ||
           (await confirm($l('DataSet', 'unsaved_data_confirm'))) !== 'cancel'
         ) {
           await this.query(Math.floor(index / pageSize) + 1);
@@ -1089,22 +1130,19 @@ export default class DataSet extends EventManager {
    * @return 被删除的记录集
    */
   @action
-  splice(from: number, deleteCount: number, ...records: Record[]): (Record | undefined)[] {
-    if (records.length) {
+  splice(from: number, deleteCount: number, ...items: Record[]): (Record | undefined)[] {
+    const fromRecord = this.get(from);
+    const deleted = this.slice(from, from + deleteCount).map(this.deleteRecord, this);
+    if (items.length) {
       checkParentByInsert(this);
+      const { records } = this;
+      const transformedRecords = this.transferRecords(items);
+      if (fromRecord) {
+        records.splice(records.indexOf(fromRecord), 0, ...transformedRecords);
+      } else {
+        records.push(...transformedRecords);
+      }
     }
-    const deleted = this.records.filter((record, index) => {
-      if (record.status === RecordStatus.delete) {
-        from += 1;
-      }
-      if (index >= from && deleteCount > 0 && record.status !== RecordStatus.delete) {
-        this.deleteRecord(record);
-        deleteCount -= 1;
-        return true;
-      }
-      return false;
-    });
-    this.records.splice(from, 0, ...this.transferRecords(records));
     return deleted;
   }
 
@@ -1383,10 +1421,11 @@ export default class DataSet extends EventManager {
 
   /**
    * 判断是否有新增、变更或者删除的记录
+   * @deprecated
    * @return true | false
    */
   isModified(): boolean {
-    return this.records.some(record => record.status !== RecordStatus.sync);
+    return this.dirty;
   }
 
   /**
@@ -1413,8 +1452,12 @@ export default class DataSet extends EventManager {
    * @return true | false
    */
   validate(isSelected?: boolean, noCascade?: boolean): Promise<boolean> {
+    const dataToJSON = adapterDataToJSON(isSelected, noCascade);
+    if (dataToJSON) {
+      this.dataToJSON = dataToJSON;
+    }
     return Promise.all(
-      (isSelected ? this.selected : this.data).map(record => record.validate(noCascade)),
+      (useSelected(this.dataToJSON) ? this.selected : this.data).map(record => record.validate()),
     ).then(results => results.every(result => result));
   }
 
@@ -1484,8 +1527,12 @@ export default class DataSet extends EventManager {
   @action
   commitData(allData: any[], total?: number): DataSet {
     const { autoQueryAfterSubmit, primaryKey } = this.props;
-    // 若有响应数据，进行数据回写
-    if (allData.length) {
+    if (this.dataToJSON === DataToJSON.normal) {
+      flatMap(this.dirtyRecords).forEach(record =>
+        record.commit(omit(record.toData(), ['__dirty']), this),
+      );
+      // 若有响应数据，进行数据回写
+    } else if (allData.length) {
       const statusKey = getConfig('statusKey');
       const status = getConfig('status');
       const restCreatedData: any[] = [];
@@ -1519,7 +1566,7 @@ export default class DataSet extends EventManager {
       if (restUpdatedData.length === updated.length) {
         updated.forEach((r, index) => r.commit(restUpdatedData[index], this));
       } else {
-        updated.forEach(r => r.commit(r.toData(), this));
+        updated.forEach(r => r.commit(omit(r.toData(), ['__dirty']), this));
       }
       destroyed.forEach(r => r.commit(undefined, this));
       if (isNumber(total)) {
@@ -1543,6 +1590,7 @@ Then the query method will be auto invoke.`,
    * @param ds 头数据集
    * @param name 头数据集字段名
    */
+  @action
   bind(ds: DataSet, name: string) {
     if (!name) {
       warning(false, 'DataSet: cascade binding need a name');
@@ -1554,6 +1602,7 @@ Then the query method will be auto invoke.`,
     }
     ds.children[name] = this;
     this.parent = ds;
+    this.parentName = name;
     const { current } = ds;
     if (current) {
       ds.syncChild(this, current, name);
@@ -1603,6 +1652,7 @@ Then the query method will be auto invoke.`,
     return this;
   }
 
+  @action
   processData(allData: any[]): Record[] {
     return allData.map(data => {
       const record =
@@ -1723,9 +1773,9 @@ Then the query method will be auto invoke.`,
   //     ), allData);
   // }
 
-  private async write(records: Record[], isSelect?: boolean, noCascade?: boolean): Promise<any> {
+  private async write(records: Record[]): Promise<any> {
     if (records.length) {
-      const [created, updated, destroyed] = prepareSubmitData(records, isSelect, noCascade);
+      const [created, updated, destroyed] = prepareSubmitData(records, this.dataToJSON);
       const axiosConfigs: AxiosRequestConfig[] = [];
       const submitData: object[] = [
         ...prepareForSubmit('create', created, axiosConfigs, this),
@@ -1898,15 +1948,12 @@ Then the query method will be auto invoke.`,
       const ds = children[childName];
       if (previous && ds.status === DataSetStatus.ready && previous.dataSetSnapshot[childName]) {
         previous.dataSetSnapshot[childName] = ds.snapshot();
+        ds.current = undefined;
       }
       if (current) {
         const snapshot = current.dataSetSnapshot[childName];
-        const cascadeRecords = current.cascadeRecordsMap[childName];
         if (snapshot instanceof DataSetSnapshot) {
           ds.restore(snapshot);
-        } else if (cascadeRecords) {
-          delete current.cascadeRecordsMap[childName];
-          ds.loadData(cascadeRecords);
         } else if (!this.syncChild(ds, current, childName, true)) {
           ds.loadData([]);
           remoteKeys.push(childName);
@@ -1927,8 +1974,12 @@ Then the query method will be auto invoke.`,
     childName: string,
     onlyClient?: boolean,
   ): boolean {
-    const childRecords = currentRecord.get(childName);
+    const cascadeRecords = currentRecord.cascadeRecordsMap[childName];
+    const childRecords = cascadeRecords || currentRecord.get(childName);
     if (currentRecord.status === RecordStatus.add || isArrayLike(childRecords)) {
+      if (cascadeRecords) {
+        delete currentRecord.cascadeRecordsMap[childName];
+      }
       ds.clearCachedSelected();
       ds.loadData(childRecords ? childRecords.slice() : []);
       if (currentRecord.status === RecordStatus.add) {
@@ -2016,7 +2067,7 @@ Then the query method will be auto invoke.`,
         if (primaryKey) {
           parentParam[primaryKey] = current.get(primaryKey);
         } else {
-          parentParam = current.toData();
+          parentParam = omit(current.toData(), ['__dirty']);
         }
       }
     }
@@ -2030,10 +2081,7 @@ Then the query method will be auto invoke.`,
     if (queryDataSet) {
       const { current } = queryDataSet;
       if (current) {
-        data = current.toJSONData();
-        delete data.__dirty;
-        delete data.__id;
-        delete data[getConfig('statusKey')];
+        data = omit(current.toData(true), ['__dirty']);
       }
     }
     data = {

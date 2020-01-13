@@ -1,6 +1,7 @@
 import {
   action,
   computed,
+  get,
   isArrayLike,
   isObservableArray,
   observable,
@@ -20,11 +21,16 @@ import {
   checkFieldType,
   childrenInfoForDelete,
   findBindFields,
+  generateData,
+  generateJSONData,
   generateResponseData,
   getRecordValue,
+  isDirtyRecord,
   processIntlField,
   processToJSON,
   processValue,
+  useCascade,
+  useNormal,
 } from './utils';
 import * as ObjectChainValue from '../_util/ObjectChainValue';
 import DataSetSnapshot from './DataSetSnapshot';
@@ -69,6 +75,8 @@ export default class Record {
   @observable isCached: boolean;
 
   @observable editing?: boolean;
+
+  @observable state: { [key: string]: any };
 
   @computed
   get key(): string | number {
@@ -193,12 +201,25 @@ export default class Record {
   }
 
   @computed
+  get records(): Record[] {
+    const { dataSet } = this;
+    if (dataSet) {
+      const { cascadeParent } = this;
+      if (cascadeParent && !cascadeParent.isCurrent) {
+        return cascadeParent.getCascadeRecords(dataSet.parentName) || [];
+      }
+      return dataSet.records;
+    }
+    return [];
+  }
+
+  @computed
   get children(): Record[] | undefined {
     const { dataSet } = this;
     if (dataSet) {
       const { parentField, idField } = dataSet.props;
       if (parentField && idField) {
-        const children = dataSet.records.filter(record => {
+        const children = this.records.filter(record => {
           const childParentId = record.get(parentField);
           const id = this.get(idField);
           return !isNil(childParentId) && !isNil(id) && childParentId === id;
@@ -215,7 +236,7 @@ export default class Record {
     if (dataSet) {
       const { parentField, idField } = dataSet.props;
       if (parentField && idField) {
-        return dataSet.records.find(record => {
+        return this.records.find(record => {
           const parentId = this.get(parentField);
           const id = record.get(idField);
           return !isNil(parentId) && !isNil(id) && parentId === id;
@@ -236,21 +257,30 @@ export default class Record {
 
   @computed
   get dirty(): boolean {
-    const { fields, status } = this;
-    return status === RecordStatus.update || [...fields.values()].some(({ dirty }) => dirty);
+    const { fields, status, dataSet, isCurrent, dataSetSnapshot } = this;
+    if (status === RecordStatus.update || [...fields.values()].some(({ dirty }) => dirty)) {
+      return true;
+    }
+    if (dataSet) {
+      const { children } = dataSet;
+      return Object.keys(children).some(key => {
+        return isCurrent
+          ? children[key].dirty
+          : !!dataSetSnapshot[key] && dataSetSnapshot[key].records.some(isDirtyRecord);
+      });
+    }
+    return false;
   }
 
   @computed
   get cascadeParent(): Record | undefined {
     const { dataSet } = this;
     if (dataSet) {
-      const { parent } = dataSet;
-      if (parent) {
-        const { children } = parent;
-        const name = Object.keys(children).find(key => children[key] === dataSet);
-        if (name) {
-          return parent.find(record => (record.getCascadeRecords(name) || []).indexOf(this) !== -1);
-        }
+      const { parent, parentName } = dataSet;
+      if (parent && parentName) {
+        return parent.find(
+          record => (record.getCascadeRecords(parentName) || []).indexOf(this) !== -1,
+        );
       }
     }
     return undefined;
@@ -259,6 +289,7 @@ export default class Record {
   constructor(data: object = {}, dataSet?: DataSet) {
     runInAction(() => {
       const initData = toJS(data);
+      this.state = {};
       this.fields = observable.map<string, Field>();
       this.status = RecordStatus.add;
       this.selectable = true;
@@ -280,26 +311,34 @@ export default class Record {
     });
   }
 
-  toData(): object {
-    const json = this.normalizeData();
-    this.normalizeCascadeData(json, true);
-    return json;
-  }
-
-  toJSONData(noCascade?: boolean, isCascadeSelect?: boolean): any {
-    const { status } = this;
+  toData(
+    needIgnore?: boolean,
+    noCascade?: boolean,
+    isCascadeSelect?: boolean,
+    all: boolean = true,
+  ): any {
+    const { status, dataSet } = this;
+    const dataToJSON = dataSet && dataSet.dataToJSON;
+    const cascade = noCascade === undefined && dataToJSON ? useCascade(dataToJSON) : !noCascade;
+    const normal = all || (dataToJSON && useNormal(dataToJSON));
     let dirty = status !== RecordStatus.sync;
-    const json = this.normalizeData(true);
-    if (!noCascade && this.normalizeCascadeData(json, false, isCascadeSelect)) {
+    const json = this.normalizeData(needIgnore);
+    if (cascade && this.normalizeCascadeData(json, normal, isCascadeSelect)) {
       dirty = true;
     }
     return {
       ...json,
-      __id: this.id,
+      __dirty: dirty,
+    };
+  }
+
+  toJSONData(noCascade?: boolean, isCascadeSelect?: boolean): any {
+    const { status } = this;
+    return {
+      ...this.toData(true, noCascade, isCascadeSelect, false),
       [getConfig('statusKey')]: getConfig('status')[
         status === RecordStatus.sync ? RecordStatus.update : status
       ],
-      __dirty: dirty,
     };
   }
 
@@ -336,7 +375,7 @@ export default class Record {
         }
         const snapshot = this.dataSetSnapshot[fieldName];
         if (snapshot) {
-          return snapshot.records.slice();
+          return snapshot.records.filter(r => r.status !== RecordStatus.delete);
         }
         const cascadeRecords = this.cascadeRecordsMap[fieldName];
         if (cascadeRecords) {
@@ -344,7 +383,7 @@ export default class Record {
         }
         const data = this.get(fieldName);
         if (isObservableArray(data)) {
-          const records = dataSet.processData(data);
+          const records = childDataSet.processData(data);
           this.cascadeRecordsMap[fieldName] = records;
           return records;
         }
@@ -377,7 +416,7 @@ export default class Record {
       if (!isSame(newValue, oldValue)) {
         const { fields } = this;
         ObjectChainValue.set(this.data, fieldName, newValue, fields);
-        const pristineValue = this.getPristineValue(fieldName);
+        const pristineValue = toJS(this.getPristineValue(fieldName));
         if (isSame(pristineValue, newValue)) {
           if (this.status === RecordStatus.update && [...fields.values()].every(f => !f.dirty)) {
             this.status = RecordStatus.sync;
@@ -591,6 +630,20 @@ export default class Record {
   }
 
   @action
+  setState(item: string | object, value?: any) {
+    if (isString(item)) {
+      set(this.state, item, value);
+    } else if (isPlainObject(item)) {
+      set(this.state, item);
+    }
+    return this;
+  }
+
+  getState(key: string) {
+    return get(this.state, key);
+  }
+
+  @action
   private commitTls(data = {}, name: string) {
     const { dataSet } = this;
     const lang = dataSet ? dataSet.lang : localeContext.locale.lang;
@@ -699,7 +752,11 @@ export default class Record {
     return json;
   }
 
-  private normalizeCascadeData(json: any, all?: boolean, isSelect?: boolean): boolean | undefined {
+  private normalizeCascadeData(
+    json: any,
+    normal?: boolean,
+    isSelect?: boolean,
+  ): boolean | undefined {
     const { dataSetSnapshot, dataSet, isCurrent, status, fields } = this;
     const isDelete = status === RecordStatus.delete;
     if (dataSet) {
@@ -714,11 +771,14 @@ export default class Record {
             const snapshot = dataSetSnapshot[name];
             const child = isCurrent ? children[name] : snapshot && new DataSet().restore(snapshot);
             if (child) {
-              const jsonArray = all ? child.toData() : child.toJSONData(isSelect);
-              if (jsonArray.length > 0) {
+              const jsonArray =
+                normal || useNormal(child.dataToJSON)
+                  ? generateData(child)
+                  : generateJSONData(child, isSelect);
+              if (jsonArray.dirty) {
                 dirty = true;
               }
-              ObjectChainValue.set(json, name, jsonArray, fields);
+              ObjectChainValue.set(json, name, jsonArray.data, fields);
             }
           });
         }

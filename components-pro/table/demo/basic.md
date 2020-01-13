@@ -270,7 +270,7 @@ class App extends React.Component {
     const { userDs } = this;
     const { selected } = userDs;
     if (selected.length > 0) {
-      userDs.splice(0, 0, ...selected);
+      userDs.splice(0, 1, ...selected);
     } else {
       Modal.warning('请选择记录');
     }
@@ -365,6 +365,9 @@ class App extends React.Component {
         dataSet={this.userDs}
         header="User"
         style={{ height: 200 }}
+        pagination={{
+          showQuickJumper: true,
+        }}
       >
         <Column
           name="userid"

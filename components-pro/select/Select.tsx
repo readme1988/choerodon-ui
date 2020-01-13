@@ -298,7 +298,8 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
     } = this;
     return (
       options ||
-      normalizeOptions({ field, textField, valueField, disabledField, multiple, children })
+      (field && field.options) ||
+      normalizeOptions({ textField, valueField, disabledField, multiple, children })
     );
   }
 
@@ -839,7 +840,6 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
     const { valueField } = this;
     const newValue = record.get(valueField);
     this.removeValue(newValue, -1);
-    this.removeComboOption(record);
   }
 
   @action
@@ -944,7 +944,7 @@ export class Select<T extends SelectProps> extends TriggerField<T> {
 
   @autobind
   chooseAll() {
-    this.setValue(this.options.map(this.processRecordToObject, this));
+    this.setValue(this.filteredOptions.map(this.processRecordToObject, this));
   }
 
   @autobind

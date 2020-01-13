@@ -1,8 +1,13 @@
-import DataSet from './DataSet';
+import DataSet, { DataSetChildren } from './DataSet';
 import Record from './Record';
+import { DataToJSON } from './enum';
 
 export default class DataSetSnapshot {
   records: Record[];
+
+  current?: Record;
+
+  events?: { [eventName: string]: [Function, boolean][] };
 
   originalData: Record[];
 
@@ -14,6 +19,10 @@ export default class DataSetSnapshot {
 
   pageSize: number;
 
+  dataToJSON: DataToJSON;
+
+  children: DataSetChildren;
+
   constructor({
     records,
     originalData,
@@ -21,6 +30,10 @@ export default class DataSetSnapshot {
     currentPage,
     pageSize,
     cachedSelected,
+    dataToJSON,
+    children,
+    current,
+    events,
   }: DataSet) {
     this.records = records;
     this.originalData = originalData;
@@ -28,5 +41,9 @@ export default class DataSetSnapshot {
     this.currentPage = currentPage;
     this.pageSize = pageSize;
     this.cachedSelected = cachedSelected;
+    this.dataToJSON = dataToJSON;
+    this.children = children;
+    this.current = current;
+    this.events = events;
   }
 }

@@ -45,6 +45,7 @@ title: DataSet
 | queryFields | 查询字段属性数组，在内部生成 queryDataSet，优先级低于 queryDataSet 属性，详见[Field Props](#Field Props) | object\[\] |  |
 | cacheSelection | 缓存选中记录，使切换分页时仍保留选中状态。当设置了 primaryKey 或有字段设置了 unique 才起作用。 | boolean | false |
 | axios | 覆盖默认 axios | AxiosInstance |  |
+| dataToJSON | 数据转为 json 的方式，详见[DataToJSON](#DataToJSON) | DataToJSON | dirty |
 
 ### DataSet Values
 
@@ -70,16 +71,17 @@ title: DataSet
 | cachedSelected | 缓存的选中记录 | readonly observable&lt;Record[]&gt; |
 | length | 数据量 | readonly observable&lt;number&gt; |
 | queryDataSet | 查询数据源 | observable&lt;DataSet&gt; |
-| parent | 级联头数据源 | readonly DataSet |
+| parent | 级联头数据源 | readonly observable&lt;DataSet&gt; |
 | children | 所有级联行数据源 | readonly \[key:string\]: DataSet} |
+| dirty | 含有状态不是 sync 的记录及 dirty 为 true 的记录 | readonly observable&lt;boolean&gt;} |
 
 ### DataSet Methods
 
 | 名称 | 说明 | 参数 | 返回值类型 |
 | --- | --- | --- | --- |
-| ready(isSelect) | 判断记录是否准备就绪 | `isSelect` - 设为 `true` 时，判断选中的记录 | Promise |
+| ready() | 判断数据源是否准备就绪 |  | Promise |
 | query(page) | 查询 | `page`&lt;optional,defualt:0&gt; - 指定页码 | Promise&lt;any&gt; |
-| submit(isSelect, noCascade) | 将数据集中的增删改的记录先进行校验再进行远程提交。submit 会抛出请求的异常，请用 promise.catch 或 try-await-catch 来处理异常。 | `isSelect` - 设为 `true` 时，只提交选中的记录 `noCascade` - 为 true 时，不提交级联数据 | Promise&lt;any&gt; `false` - 校验失败，`undefined` - 无数据提交或提交相关配置不全，如没有 submitUrl。 |
+| submit() | 将数据集中的增删改的记录先进行校验再进行远程提交。submit 会抛出请求的异常，请用 promise.catch 或 try-await-catch 来处理异常。 |  | Promise&lt;any&gt; `false` - 校验失败，`undefined` - 无数据提交或提交相关配置不全，如没有 submitUrl。 |
 | reset() | 重置更改, 并清除校验状态 |  |  |
 | locate(index) | 定位到指定记录, 如果`paging` 为 `true`，则做远程查询 | `index` - 记录索引 | Promise&lt;Record&gt; |
 | page(page) | 定位到指定页码，如果`paging` 为 `true`，则做远程查询 | `page` - 页码 | Promise&lt;any&gt; |
@@ -120,11 +122,10 @@ title: DataSet
 | clearCachedSelected() | 清除缓存的选中记录 |  |  |
 | get(index) | 获取指定索引的记录 | `index` - 记录索引 | Record |
 | getFromTree(index) | 从树形数据中获取指定索引的根节点记录 | `index` - 记录索引 | Record |
-| isModified() | 判断是否有新增、变更或者删除的记录 |  | boolean |
-| validate(isSelected, noCascade) | 校验数据记录是否有效 | `isSelect` - 设为 `true` 时，校验选中的记录 `noCascade` - 为 true 时，不校验级联数据 | Promise&lt;boolean&gt; |
+| validate() | 校验数据记录是否有效 |  | Promise&lt;boolean&gt; |
 | getField(fieldName) | 根据字段名获取字段 | `fieldName` - 字段名 | Field |
 | addField(fieldName, fieldProps) | 增加新字段 | `fieldName` - 字段名，`fieldProps` - 字段属性 | Field |
-| toJSONData(isSelected, noCascade) | 转换成用于提交的 json 数据 | `isSelect` - 设为 `true` 时，只转换选中记录 `noCascade` - 为 true 时，不转换级联数据 | object[] |
+| toJSONData() | 转换成用于提交的 json 数据 |  | object[] |
 | toData() | 转换成普通数据，不包含删除的数据 |  | object[] |
 | bind(ds, name) | 绑定头 DataSet | `ds` - 头 DataSet 对象或 id `name` - 绑定名 |  |
 | setQueryParameter(para, value) | 设置查询参数 | `para` - 参数名 `value` - 参数值 |  |
@@ -169,7 +170,7 @@ title: DataSet
 | previousRecord | 树形中前一条数据                                | Record\| undefined        |
 | nextRecord     | 树形中后一条数据                                | Record\| undefined        |
 | level          | 树形层级                                        | number                    |
-| dirty          | 数据是否发生变更                                | boolean                   |
+| dirty          | 数据是否发生变更， 包含级联数据源是否变更       | boolean                   |
 | cascadeParent  | 级联父数据                                      | Record\| undefined        |
 | index          | 在数据源中的索引                                | number                    |
 
@@ -181,8 +182,10 @@ title: DataSet
 | getPristineValue(fieldName) | 根据字段名获取字段的原始值。 | `fieldName` - 字段名 | any |
 | set(fieldName, value) | 给指定字段赋值 | `fieldName` - 字段名或者键值对对象；`value` - 值 |  |
 | init(fieldName, value) | 给指定字段初始化值。字段变为净值。 | `fieldName` - 字段名或者键值对对象；`value` - 值 |  |
-| toJSONData(noCascade, isCascadeSelect) | 转换成用于提交的 json 数据 | `noCascade` - 为 true 时，不转换级联数据 `isCascadeSelect` - 只转换级联选中的记录 | object |
-| toData() | 转换成普通数据 |  | object |
+| setState(key, value) | 设置自定义状态值。 | `key` - 键名或者键值对对象；`value` - 值 |  |
+| getState(key) | 获取自定义状态值。 | `key` - 键名 |  |
+| toJSONData() | 转换成用于提交的 json 数据, 受 DataSet 的 dataToJSON 属性影响。 |  | object |
+| toData() | 转换成普通数据, 包括所有级联数据 |  | object |
 | validate(all, noCascade) | 校验记录 | `all` - 校验所有字段，默认为 false，只校验修改或新增字段 `noCascade` - 为 true 时，不校验级联数据 | Promise&lt;boolean&gt; |
 | getCascadeRecords(childName) | 根据级联名获取子级联数据 | `childName` - 级联名 | Record[] |
 | getField(fieldName) | 根据字段名获取字段 z | `fieldName` - 字段名 | Field |
@@ -288,3 +291,16 @@ title: DataSet
 | loadFailed(error)   | DataSet 查询失败的反馈, `error` - 异常对象 | Function |
 | submitSuccess(resp) | DataSet 提交成功的反馈, `resp` - 响应值    | Function |
 | submitFailed(error) | DataSet 提交失败的反馈, `error` - 异常对象 | Function |
+
+### DataToJSON
+
+| 枚举值 | 说明 |
+| --- | --- |
+| dirty | 只转换变更的数据，包括本身无变更但级联有变更的数据 |
+| selected | 只转换选中的数据，无关数据的变更状态 |
+| all | 转换所有数据 |
+| normal | 转换所有数据为普通 json，不会带上\_\_status, \_\_id 等附加字段，也不会出现临时删除的数据， 一般用于大 JSON 字段 |
+| dirty-self | 同 dirty， 但不转换级联数据 |
+| selected-self | 同 selected， 但不转换级联数据 |
+| all-self | 同 all， 但不转换级联数据 |
+| normal-self | 同 normal， 但不转换级联数据 |
